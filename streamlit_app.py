@@ -5,6 +5,7 @@ import requests
 import json
 
 # Конфигурация API
+OPENROUTER_API_KEY = st.secrets["OPENROUTER_API_KEY"]
 YOUR_SITE_URL = "https://your-site-url.com"  # Укажите ваш URL или заглушку
 YOUR_APP_NAME = "Scientific_Annotation_App"
 
