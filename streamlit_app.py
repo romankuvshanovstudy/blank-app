@@ -68,7 +68,7 @@ def call_openrouter_api(prompt):
                 "X-Title": YOUR_APP_NAME,
             },
             data=json.dumps({
-                "model": "google/gemma-2-9b-it:free",
+                "model": "google/gemini-2.0-flash-exp:free",
                 "messages": [
                     {
                         "role": "user",
