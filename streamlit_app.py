@@ -45,7 +45,7 @@ def clean_text(text):
 # Функция для извлечения текста из PDF
 def extract_text_from_pdf(pdf_file):
     pdf_document = fitz.open(stream=pdf_file.read(), filetype="pdf")
-    text = "".join([page.get_text() for page in pdf_document])
+    text = "".join(page.get_text() for page in pdf_document)
     pdf_document.close()
     return clean_text(text)
 
@@ -66,41 +66,42 @@ def call_openrouter_api(prompt):
                 "top_p": 0.9
             })
         )
-        return response.json().get("choices", [{}])[0].get("message", {}).get("content", "Ошибка: Невозможно получить ответ") if response.status_code == 200 else f"Ошибка: {response.status_code}, {response.text}"
+        if response.status_code == 200:
+            return response.json()["choices"][0]["message"]["content"]
+        else:
+            return f"Ошибка: {response.status_code}, {response.text}"
     except Exception as e:
         return f"Произошла ошибка: {str(e)}"
 
 # Интерфейс Streamlit
 def main():
     st.title("Создание аннотации научной статьи")
-    st.write("Вы можете загрузить PDF-файл или ввести текст статьи вручную.")
-    
-    # Спойлер для загрузки PDF
+    st.write("Загрузите PDF-файл или введите текст статьи, затем нажмите кнопку для генерации аннотации.")
+
     with st.expander("Загрузить PDF-файл"):
-        uploaded_file = st.file_uploader("Выберите PDF-файл", type=["pdf"])
-        pdf_text = ""
-        if uploaded_file is not None:
+        uploaded_file = st.file_uploader("Выберите PDF", type=["pdf"])
+    
+    text_input = st.text_area("Или введите текст статьи вручную:", height=300)
+
+    if st.button("Сгенерировать аннотацию"):
+        if uploaded_file:
             st.info("Извлечение и очистка текста из PDF...")
-            pdf_text = extract_text_from_pdf(uploaded_file)
-            if pdf_text.strip():
-                st.success("Текст успешно извлечен и очищен!")
-                st.text_area("Очищенный текст статьи из PDF:", pdf_text, height=200)
-            else:
-                st.error("Не удалось извлечь текст из PDF. Проверьте файл.")
-    
-    # Текстовое поле для ввода статьи вручную
-    user_text = st.text_area("Или введите текст статьи вручную:", height=300)
-    final_text = user_text.strip() if user_text.strip() else pdf_text.strip()
-    
-    if final_text:
-        if st.button("Сгенерировать аннотацию"):
+            final_text = extract_text_from_pdf(uploaded_file)
+        elif text_input.strip():
+            final_text = clean_text(text_input)
+        else:
+            st.error("Необходимо загрузить PDF или ввести текст статьи.")
+            return
+
+        if final_text:
+            st.success("Текст успешно подготовлен!")
+            st.text_area("Очищенный текст статьи:", final_text, height=300)
+            
             st.info("Генерация аннотации...")
-            final_prompt = PROMPT_TEMPLATE.format(text=final_text)
-            result = call_openrouter_api(final_prompt)
+            result = call_openrouter_api(PROMPT_TEMPLATE.format(text=final_text))
+            
             st.subheader("Сгенерированная аннотация:")
             st.write(result)
-    else:
-        st.warning("Введите текст статьи вручную или загрузите PDF.")
 
 if __name__ == "__main__":
     main()
