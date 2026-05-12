@@ -216,23 +216,32 @@ div[data-testid="stRadio"] label:has(input:checked) {
     color: #1a1a18 !important;
 }
 
+
 /* Колонки: выравнивание по верху, убираем gap */
 [data-testid="stHorizontalBlock"] {
     align-items: flex-start !important;
     gap: 0 !important;
 }
 
-/* Горизонтальные отступы — через внутренний вертикальный блок */
-[data-testid="stHorizontalBlock"] > [data-testid="column"] > div {
-    padding-left: 28px !important;
-    padding-right: 28px !important;
-    padding-bottom: 32px !important;
-}
-
 /* Правая колонка — граница слева */
 [data-testid="stHorizontalBlock"] > [data-testid="column"]:last-child {
     border-left: 1px solid #e8e6e0 !important;
 }
+
+/* Отступы колонок — через stVerticalBlock (единственный надёжный слой) */
+[data-testid="stHorizontalBlock"] [data-testid="stVerticalBlock"] {
+    padding: 20px 28px 32px !important;
+}
+
+/* Убираем лишние отступы внутри markdown-обёрток чтобы не дублировались */
+[data-testid="stHorizontalBlock"] .eqmt79k2 {
+    margin: 0 !important;
+    padding: 0 !important;
+}
+[data-testid="stHorizontalBlock"] [data-testid="stElementContainer"] {
+    margin-bottom: 8px !important;
+}
+
 </style>
 """, unsafe_allow_html=True)
 
@@ -313,7 +322,6 @@ col_left, col_right = st.columns([1, 1], gap="small")
 #  ЛЕВАЯ КОЛОНКА — ввод
 # ════════════════════════════════════════════
 with col_left:
-    st.markdown('<div style="height:20px"></div>', unsafe_allow_html=True)
     # Режим инференса
     st.markdown('<div class="section-label" style="margin-top:0;">⚙ Режим инференса</div>', unsafe_allow_html=True)
     inference_mode = st.radio(
@@ -377,7 +385,6 @@ with col_left:
 #  ПРАВАЯ КОЛОНКА — результат
 # ════════════════════════════════════════════
 with col_right:
-    st.markdown('<div style="height:20px"></div>', unsafe_allow_html=True)
     st.markdown(
         '<div class="section-label" style="margin-top:0;">≡ Результат</div>',
         unsafe_allow_html=True,
