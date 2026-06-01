@@ -1,9 +1,9 @@
 import streamlit as st
 import fitz  # PyMuPDF
 import re
-import requests
-import json
 import time
+from google import genai
+from groq import Groq
 
 st.set_page_config(
     page_title="АннотатоR",
@@ -12,10 +12,9 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
-# ── Конфигурация API ──────────────────────────────────────────────────────────
-OPENROUTER_API_KEY = st.secrets["OPENROUTER_API_KEY"]
-YOUR_SITE_URL = "https://your-site-url.com"
-YOUR_APP_NAME = "Scientific_Annotation_App"
+# -- Конфигурация API ----------------------------------------------------------
+GROQ_API_KEY   = st.secrets.get("GROQ_API_KEY")
+GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY")
 
 PROMPT_TEMPLATE = """
 # Задача: Создание аннотации научной статьи
@@ -42,26 +41,22 @@ PROMPT_TEMPLATE = """
 Только текст аннотации.
 """
 
-# ── Глобальные стили ──────────────────────────────────────────────────────────
+# -- Глобальные стили ----------------------------------------------------------
 st.markdown("""
 <style>
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400&display=swap');
 
-/* Сброс и базовые стили */
 html, body, [class*="css"] {
     font-family: 'IBM Plex Sans', sans-serif !important;
 }
 
-/* Убираем стандартный отступ Streamlit */
 .block-container {
     padding: 0 !important;
     max-width: 100% !important;
 }
 
-/* Скрываем стандартный заголовок и меню */
 #MainMenu, footer, header { visibility: hidden; }
 
-/* ── Верхняя панель ── */
 .topbar {
     display: flex;
     align-items: center;
@@ -97,7 +92,6 @@ html, body, [class*="css"] {
 }
 .status-dot { width: 6px; height: 6px; border-radius: 50%; background: #639922; }
 
-/* ── Секция-лейбл ── */
 .section-label {
     font-size: 10.5px; font-weight: 500; letter-spacing: 0.08em;
     text-transform: uppercase; color: #888780;
@@ -105,37 +99,19 @@ html, body, [class*="css"] {
     display: flex; align-items: center; gap: 5px;
 }
 
-/* ── Карточки режима инференса ── */
-.mode-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 4px; }
-.mode-card {
-    padding: 12px 14px; border-radius: 8px;
-    border: 1px solid #e8e6e0; background: #fff;
-    cursor: pointer; transition: border-color .15s;
-}
-.mode-card.active { border: 1.5px solid #2c2c2a; background: #f5f4f0; }
-.mode-card-icon { font-size: 18px; margin-bottom: 6px; }
-.mode-card-title { font-size: 12px; font-weight: 500; color: #1a1a18; }
-.mode-card-desc  { font-size: 11px; color: #888780; margin-top: 2px; }
-
-/* ── Зона загрузки ── */
 .upload-zone {
     border: 1px dashed #b4b2a9;
     border-radius: 10px; padding: 22px;
     text-align: center; background: #fff;
     margin-bottom: 12px;
 }
-.upload-zone-icon { font-size: 28px; color: #b4b2a9; margin-bottom: 8px; }
-.upload-zone-title { font-size: 13px; font-weight: 500; color: #1a1a18; margin-bottom: 3px; }
-.upload-zone-hint  { font-size: 11px; color: #888780; }
 
-/* ── Дивайдер ── */
 .divider-row {
     display: flex; align-items: center; gap: 10px; margin: 14px 0;
 }
 .divider-line { flex: 1; height: 1px; background: #e8e6e0; }
 .divider-text { font-size: 11px; color: #888780; }
 
-/* ── Карточка результата ── */
 .result-card {
     background: #fafaf8; border: 1px solid #d3d1c7;
     border-radius: 10px; padding: 20px;
@@ -155,7 +131,6 @@ html, body, [class*="css"] {
 }
 .meta-item { font-size: 11px; color: #888780; display: flex; align-items: center; gap: 4px; }
 
-/* ── Кнопка генерации ── */
 div[data-testid="stButton"] > button {
     width: auto !important;
     background: #2c2c2a !important;
@@ -174,7 +149,6 @@ div[data-testid="stButton"] > button:hover {
     background: #444441 !important;
 }
 
-/* ── Стиль текстовой области ── */
 textarea {
     font-family: 'IBM Plex Sans', sans-serif !important;
     font-size: 13px !important;
@@ -185,7 +159,6 @@ textarea {
 }
 textarea:focus { border-color: #888780 !important; box-shadow: none !important; }
 
-/* ── Стиль file_uploader ── */
 [data-testid="stFileUploader"] {
     border: 1px dashed #b4b2a9 !important;
     border-radius: 10px !important;
@@ -194,7 +167,6 @@ textarea:focus { border-color: #888780 !important; box-shadow: none !important; 
 }
 [data-testid="stFileUploader"] label { display: none !important; }
 
-/* ── Радиокнопки (режим/модель) ── */
 div[data-testid="stRadio"] > div {
     flex-direction: row !important;
     gap: 8px !important;
@@ -216,24 +188,16 @@ div[data-testid="stRadio"] label:has(input:checked) {
     color: #1a1a18 !important;
 }
 
-
-/* Колонки: выравнивание по верху, убираем gap */
 [data-testid="stHorizontalBlock"] {
     align-items: flex-start !important;
     gap: 0 !important;
 }
-
-/* Правая колонка — граница слева */
 [data-testid="stHorizontalBlock"] > [data-testid="column"]:last-child {
     border-left: 1px solid #e8e6e0 !important;
 }
-
-/* Отступы колонок — через stVerticalBlock (единственный надёжный слой) */
 [data-testid="stHorizontalBlock"] [data-testid="stVerticalBlock"] {
     padding: 20px 28px 32px !important;
 }
-
-/* Убираем лишние отступы внутри markdown-обёрток чтобы не дублировались */
 [data-testid="stHorizontalBlock"] .eqmt79k2 {
     margin: 0 !important;
     padding: 0 !important;
@@ -241,12 +205,11 @@ div[data-testid="stRadio"] label:has(input:checked) {
 [data-testid="stHorizontalBlock"] [data-testid="stElementContainer"] {
     margin-bottom: 8px !important;
 }
-
 </style>
 """, unsafe_allow_html=True)
 
 
-# ── Утилиты ──────────────────────────────────────────────────────────────────
+# -- Утилиты -------------------------------------------------------------------
 def clean_text(text: str) -> str:
     text = re.sub(r"\n\d+\n", "\n", text)
     text = re.split(r"(Список литературы|Литература|References)", text, flags=re.IGNORECASE)[0]
@@ -261,33 +224,40 @@ def extract_text_from_pdf(pdf_file) -> str:
     return clean_text(text)
 
 
-def call_openrouter_api(prompt: str) -> tuple[str, float]:
+def call_groq_api(prompt: str) -> tuple[str, float]:
     t0 = time.time()
     try:
-        resp = requests.post(
-            url="https://openrouter.ai/api/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                "HTTP-Referer": YOUR_SITE_URL,
-                "X-Title": YOUR_APP_NAME,
-            },
-            data=json.dumps({
-                "model": "nvidia/nemotron-3-super-120b-a12b:free",
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.3,
-                "top_p": 0.9,
-            }),
+        client = Groq(api_key=GROQ_API_KEY)
+        completion = client.chat.completions.create(
+            model="llama-3.3-70b-versatile",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_completion_tokens=1024,
+            top_p=0.9,
+            stream=False,
         )
         elapsed = round(time.time() - t0, 1)
-        if resp.status_code == 200:
-            return resp.json()["choices"][0]["message"]["content"], elapsed
-        return f"Ошибка {resp.status_code}: {resp.text}", elapsed
+        return completion.choices[0].message.content, elapsed
     except Exception as e:
-        return f"Ошибка соединения: {e}", 0.0
+        return f"Ошибка Groq: {e}", 0.0
+
+
+def call_gemini_api(prompt: str) -> tuple[str, float]:
+    t0 = time.time()
+    try:
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=prompt,
+        )
+        elapsed = round(time.time() - t0, 1)
+        return response.text, elapsed
+    except Exception as e:
+        return f"Ошибка Gemini: {e}", 0.0
 
 
 def call_local_api(prompt: str, host: str, port: int) -> tuple[str, float]:
-    """Вызов локального llama.cpp сервера (OpenAI-совместимый API)."""
+    import requests, json
     t0 = time.time()
     try:
         resp = requests.post(
@@ -313,7 +283,7 @@ def call_local_api(prompt: str, host: str, port: int) -> tuple[str, float]:
         return f"Ошибка: {e}", 0.0
 
 
-# ── Инициализация состояния ───────────────────────────────────────────────────
+# -- Инициализация состояния ---------------------------------------------------
 if "annotation" not in st.session_state:
     st.session_state.annotation = ""
 if "elapsed" not in st.session_state:
@@ -322,7 +292,7 @@ if "model_used" not in st.session_state:
     st.session_state.model_used = ""
 
 
-# ── Топбар ───────────────────────────────────────────────────────────────────
+# -- Топбар --------------------------------------------------------------------
 st.markdown("""
 <div class="topbar">
   <div class="topbar-logo">
@@ -339,36 +309,32 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 
-# ── Основной макет: две колонки ───────────────────────────────────────────────
+# -- Основной макет: две колонки -----------------------------------------------
 col_left, col_right = st.columns([1, 1], gap="small")
 
-# ════════════════════════════════════════════
+# =============================================
 #  ЛЕВАЯ КОЛОНКА — ввод
-# ════════════════════════════════════════════
+# =============================================
 with col_left:
-    # Режим инференса
     st.markdown('<div class="section-label" style="margin-top:0;">⚙ Режим инференса</div>', unsafe_allow_html=True)
     inference_mode = st.radio(
         label="inference_mode",
-        options=["☁ Удалённый (OpenRouter)", "🖥 Локальный (llama.cpp)"],
+        options=["☁ Удалённый (облако)", "🖥 Локальный (llama.cpp)"],
         horizontal=True,
         label_visibility="collapsed",
     )
 
-    # Выбор модели / настройки режима
     if "Удалённый" in inference_mode:
-        model_choice = "remote"
-        st.markdown(
-            '<div class="section-label">Модель: </div>'
-            '<div style="display:inline-flex;align-items:center;gap:6px;'
-            'background:#f5f4f0;border:1px solid #2c2c2a;border-radius:20px;'
-            'padding:4px 14px;font-size:11px;font-weight:500;color:#1a1a18;margin-bottom:8px;">'
-            '✦ Nemotron Super 49B</div>',
-            unsafe_allow_html=True,
+        st.markdown('<div class="section-label">Провайдер</div>', unsafe_allow_html=True)
+        provider_choice = st.radio(
+            label="provider_choice",
+            options=["Groq — Llama 3.3 70B", "Google — Gemini 2.5 Flash"],
+            horizontal=True,
+            label_visibility="collapsed",
         )
-        local_host, local_port = "localhost", 8080  # не используется
+        local_host, local_port = "localhost", 8080
     else:
-        model_choice = "local"
+        provider_choice = "local"
         st.markdown('<div class="section-label">🖥 Параметры сервера</div>', unsafe_allow_html=True)
         c1, c2 = st.columns([3, 1])
         with c1:
@@ -378,7 +344,6 @@ with col_left:
             local_port = st.number_input("Порт", value=8080, min_value=1, max_value=65535,
                                          label_visibility="collapsed")
 
-    # Загрузка PDF
     st.markdown('<div class="section-label">Источник текста:</div>', unsafe_allow_html=True)
     uploaded_file = st.file_uploader(
         label="pdf_upload",
@@ -386,7 +351,6 @@ with col_left:
         label_visibility="collapsed",
     )
 
-    # Дивайдер
     st.markdown("""
     <div class="divider-row">
       <div class="divider-line"></div>
@@ -413,16 +377,15 @@ with col_left:
     generate = st.button("✦ Сгенерировать аннотацию")
 
 
-# ════════════════════════════════════════════
+# =============================================
 #  ПРАВАЯ КОЛОНКА — результат
-# ════════════════════════════════════════════
+# =============================================
 with col_right:
     st.markdown(
         '<div class="section-label" style="margin-top:0;">≡ Результат</div>',
         unsafe_allow_html=True,
     )
 
-    # ── Логика генерации ─────────────────────────────────────────────────────
     if generate:
         if uploaded_file:
             with st.spinner("Извлечение текста из PDF…"):
@@ -436,9 +399,12 @@ with col_right:
         if final_text:
             prompt = PROMPT_TEMPLATE.format(text=final_text)
             with st.spinner("Генерация аннотации…"):
-                if model_choice == "remote":
-                    result, elapsed = call_openrouter_api(prompt)
-                    model_label = "Nemotron Super 49B"
+                if "Groq" in provider_choice:
+                    result, elapsed = call_groq_api(prompt)
+                    model_label = "Groq — Llama 3.3 70B"
+                elif "Google" in provider_choice:
+                    result, elapsed = call_gemini_api(prompt)
+                    model_label = "Google — Gemini 2.5 Flash"
                 else:
                     result, elapsed = call_local_api(prompt, local_host, int(local_port))
                     model_label = f"llama.cpp @ {local_host}:{local_port}"
@@ -446,7 +412,6 @@ with col_right:
             st.session_state.elapsed    = elapsed
             st.session_state.model_used = model_label
 
-    # ── Карточка с результатом ───────────────────────────────────────────────
     if st.session_state.annotation:
         ann   = st.session_state.annotation
         words = len(ann.split())
@@ -464,7 +429,6 @@ with col_right:
         </div>
         """, unsafe_allow_html=True)
 
-        # Кнопка копирования через st.code (нативный copy)
         st.markdown("<div style='margin-top:10px;'></div>", unsafe_allow_html=True)
         with st.expander("Скопировать текст"):
             st.code(ann, language=None)
