@@ -261,10 +261,7 @@ def extract_text_from_pdf(pdf_file) -> str:
     return clean_text(text)
 
 
-def call_openrouter_api(prompt: str, model: str) -> tuple[str, float]:
-    model_map = {
-        "Llama 3.3 70B": "meta-llama/llama-3.3-70b-instruct:free",
-    }
+def call_openrouter_api(prompt: str) -> tuple[str, float]:
     t0 = time.time()
     try:
         resp = requests.post(
@@ -275,7 +272,7 @@ def call_openrouter_api(prompt: str, model: str) -> tuple[str, float]:
                 "X-Title": YOUR_APP_NAME,
             },
             data=json.dumps({
-                "model": model_map.get(model, "meta-llama/llama-3.3-70b-instruct:free"),
+                "model": "nvidia/nemotron-3-super-120b-a12b:free",
                 "messages": [{"role": "user", "content": prompt}],
                 "temperature": 0.3,
                 "top_p": 0.9,
@@ -287,6 +284,33 @@ def call_openrouter_api(prompt: str, model: str) -> tuple[str, float]:
         return f"Ошибка {resp.status_code}: {resp.text}", elapsed
     except Exception as e:
         return f"Ошибка соединения: {e}", 0.0
+
+
+def call_local_api(prompt: str, host: str, port: int) -> tuple[str, float]:
+    """Вызов локального llama.cpp сервера (OpenAI-совместимый API)."""
+    t0 = time.time()
+    try:
+        resp = requests.post(
+            url=f"http://{host}:{port}/v1/chat/completions",
+            headers={"Content-Type": "application/json"},
+            data=json.dumps({
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.3,
+                "top_p": 0.9,
+                "max_tokens": 1024,
+            }),
+            timeout=120,
+        )
+        elapsed = round(time.time() - t0, 1)
+        if resp.status_code == 200:
+            return resp.json()["choices"][0]["message"]["content"], elapsed
+        return f"Ошибка сервера {resp.status_code}: {resp.text}", elapsed
+    except requests.exceptions.ConnectionError:
+        return f"Не удалось подключиться к {host}:{port}. Убедитесь, что llama.cpp запущен.", 0.0
+    except requests.exceptions.Timeout:
+        return "Превышено время ожидания ответа от локального сервера.", 0.0
+    except Exception as e:
+        return f"Ошибка: {e}", 0.0
 
 
 # ── Инициализация состояния ───────────────────────────────────────────────────
@@ -331,23 +355,31 @@ with col_left:
         label_visibility="collapsed",
     )
 
-    # Выбор модели — только один вариант, показываем как инфо-пилл
+    # Выбор модели / настройки режима
     if "Удалённый" in inference_mode:
-        model_choice = "Llama 3.3 70B"
+        model_choice = "remote"
         st.markdown(
-            '<div class="section-label">🧠 Модель</div>'
+            '<div class="section-label">Модель: </div>'
             '<div style="display:inline-flex;align-items:center;gap:6px;'
             'background:#f5f4f0;border:1px solid #2c2c2a;border-radius:20px;'
             'padding:4px 14px;font-size:11px;font-weight:500;color:#1a1a18;margin-bottom:8px;">'
-            '✦ Llama 3.3 70B Instruct</div>',
+            '✦ Nemotron Super 49B</div>',
             unsafe_allow_html=True,
         )
+        local_host, local_port = "localhost", 8080  # не используется
     else:
-        model_choice = "Локальная модель (llama.cpp)"
-        st.info("Локальный сервер: убедитесь, что llama.cpp запущен на порту 8080.")
+        model_choice = "local"
+        st.markdown('<div class="section-label">🖥 Параметры сервера</div>', unsafe_allow_html=True)
+        c1, c2 = st.columns([3, 1])
+        with c1:
+            local_host = st.text_input("Хост", value="localhost", label_visibility="collapsed",
+                                       placeholder="Хост (localhost)")
+        with c2:
+            local_port = st.number_input("Порт", value=8080, min_value=1, max_value=65535,
+                                         label_visibility="collapsed")
 
     # Загрузка PDF
-    st.markdown('<div class="section-label">📂 Источник текста</div>', unsafe_allow_html=True)
+    st.markdown('<div class="section-label">Источник текста:</div>', unsafe_allow_html=True)
     uploaded_file = st.file_uploader(
         label="pdf_upload",
         type=["pdf"],
@@ -402,14 +434,17 @@ with col_right:
             final_text = ""
 
         if final_text:
+            prompt = PROMPT_TEMPLATE.format(text=final_text)
             with st.spinner("Генерация аннотации…"):
-                result, elapsed = call_openrouter_api(
-                    PROMPT_TEMPLATE.format(text=final_text),
-                    model=model_choice,
-                )
+                if model_choice == "remote":
+                    result, elapsed = call_openrouter_api(prompt)
+                    model_label = "Nemotron Super 49B"
+                else:
+                    result, elapsed = call_local_api(prompt, local_host, int(local_port))
+                    model_label = f"llama.cpp @ {local_host}:{local_port}"
             st.session_state.annotation = result
             st.session_state.elapsed    = elapsed
-            st.session_state.model_used = model_choice
+            st.session_state.model_used = model_label
 
     # ── Карточка с результатом ───────────────────────────────────────────────
     if st.session_state.annotation:
@@ -422,23 +457,23 @@ with col_right:
         <div class="result-card">
           <div class="result-text">{ann}</div>
           <div class="meta-row">
-            <div class="meta-item">🕐 {secs} сек.</div>
-            <div class="meta-item">📝 {words} слов</div>
-            <div class="meta-item">🧠 {model}</div>
+            <div class="meta-item">Время генерации: {secs} сек.</div>
+            <div class="meta-item">Длина аннотации: {words} слов</div>
+            <div class="meta-item">Модель: {model}</div>
           </div>
         </div>
         """, unsafe_allow_html=True)
 
         # Кнопка копирования через st.code (нативный copy)
         st.markdown("<div style='margin-top:10px;'></div>", unsafe_allow_html=True)
-        with st.expander("📋 Скопировать текст"):
+        with st.expander("Скопировать текст"):
             st.code(ann, language=None)
     else:
         st.markdown("""
         <div class="result-card" style="min-height:260px; display:flex; align-items:center; justify-content:center;">
           <div class="result-placeholder">
-            Здесь появится сгенерированная аннотация.<br>
-            Загрузите PDF или введите текст, затем нажмите «Сгенерировать».
+            Здесь появится сгенерированная аннотация.<br><br>
+            Загрузите PDF или введите текст,<br>затем нажмите на кнопку «Сгенерировать аннотацию».
           </div>
         </div>
         """, unsafe_allow_html=True)
