@@ -16,6 +16,9 @@ st.set_page_config(
 GROQ_API_KEY   = st.secrets.get("GROQ_API_KEY")
 GEMINI_API_KEY = st.secrets.get("GEMINI_API_KEY")
 
+LOCAL_HOST = "vm-6786.user-project-1031.cloud.intcld.ru"
+LOCAL_PORT = 8000
+
 PROMPT_TEMPLATE = """
 # Задача: Создание аннотации научной статьи
 
@@ -256,27 +259,27 @@ def call_gemini_api(prompt: str) -> tuple[str, float]:
         return f"Ошибка Gemini: {e}", 0.0
 
 
-def call_local_api(prompt: str, host: str, port: int) -> tuple[str, float]:
+def call_local_api(prompt: str) -> tuple[str, float]:
     import requests, json
     t0 = time.time()
     try:
         resp = requests.post(
-            url=f"http://{host}:{port}/v1/chat/completions",
+            url=f"http://{LOCAL_HOST}:{LOCAL_PORT}/v1/chat/completions",
             headers={"Content-Type": "application/json"},
             data=json.dumps({
                 "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.3,
-                "top_p": 0.9,
-                "max_tokens": 1024,
+                "temperature": 0.9,
+                "max_tokens": 350,
+                "repeat_penalty": 1.1,
             }),
-            timeout=120,
+            timeout=1200,
         )
         elapsed = round(time.time() - t0, 1)
         if resp.status_code == 200:
             return resp.json()["choices"][0]["message"]["content"], elapsed
         return f"Ошибка сервера {resp.status_code}: {resp.text}", elapsed
     except requests.exceptions.ConnectionError:
-        return f"Не удалось подключиться к {host}:{port}. Убедитесь, что llama.cpp запущен.", 0.0
+        return f"Не удалось подключиться к {LOCAL_HOST}:{LOCAL_PORT}. Убедитесь, что сервер запущен.", 0.0
     except requests.exceptions.Timeout:
         return "Превышено время ожидания ответа от локального сервера.", 0.0
     except Exception as e:
@@ -325,24 +328,15 @@ with col_left:
     )
 
     if "Удалённый" in inference_mode:
-        st.markdown('<div class="section-label">Провайдер</div>', unsafe_allow_html=True)
+        st.markdown('<div class="section-label">Модель</div>', unsafe_allow_html=True)
         provider_choice = st.radio(
             label="provider_choice",
-            options=["Groq — Llama 3.3 70B", "Google — Gemini 2.5 Flash"],
+            options=["Llama 3.3 70B (Groq)", "Gemini Flash (Google)"],
             horizontal=True,
             label_visibility="collapsed",
         )
-        local_host, local_port = "localhost", 8080
     else:
         provider_choice = "local"
-        st.markdown('<div class="section-label">🖥 Параметры сервера</div>', unsafe_allow_html=True)
-        c1, c2 = st.columns([3, 1])
-        with c1:
-            local_host = st.text_input("Хост", value="localhost", label_visibility="collapsed",
-                                       placeholder="Хост (localhost)")
-        with c2:
-            local_port = st.number_input("Порт", value=8080, min_value=1, max_value=65535,
-                                         label_visibility="collapsed")
 
     st.markdown('<div class="section-label">Источник текста:</div>', unsafe_allow_html=True)
     uploaded_file = st.file_uploader(
@@ -399,15 +393,15 @@ with col_right:
         if final_text:
             prompt = PROMPT_TEMPLATE.format(text=final_text)
             with st.spinner("Генерация аннотации…"):
-                if "Groq" in provider_choice:
+                if provider_choice == "local":
+                    result, elapsed = call_local_api(prompt)
+                    model_label = f"llama.cpp @ {LOCAL_HOST}:{LOCAL_PORT}"
+                elif "Groq" in provider_choice:
                     result, elapsed = call_groq_api(prompt)
-                    model_label = "Groq — Llama 3.3 70B"
-                elif "Google" in provider_choice:
-                    result, elapsed = call_gemini_api(prompt)
-                    model_label = "Google — Gemini 2.5 Flash"
+                    model_label = "Llama 3.3 70B (Groq)"
                 else:
-                    result, elapsed = call_local_api(prompt, local_host, int(local_port))
-                    model_label = f"llama.cpp @ {local_host}:{local_port}"
+                    result, elapsed = call_gemini_api(prompt)
+                    model_label = "Gemini Flash (Google)"
             st.session_state.annotation = result
             st.session_state.elapsed    = elapsed
             st.session_state.model_used = model_label
@@ -430,8 +424,29 @@ with col_right:
         """, unsafe_allow_html=True)
 
         st.markdown("<div style='margin-top:10px;'></div>", unsafe_allow_html=True)
-        with st.expander("Скопировать текст"):
-            st.code(ann, language=None)
+
+        # Clipboard copy button via JS component
+        st.components.v1.html(
+            f"""
+            <button onclick="navigator.clipboard.writeText({repr(ann)}).then(() => {{
+                this.textContent = 'Скопировано';
+                setTimeout(() => this.textContent = 'Скопировать текст', 2000);
+            }})" style="
+                background: #2c2c2a;
+                color: #fff;
+                border: none;
+                border-radius: 8px;
+                padding: 10px 22px;
+                font-size: 13px;
+                font-weight: 500;
+                font-family: 'IBM Plex Sans', sans-serif;
+                letter-spacing: 0.01em;
+                cursor: pointer;
+                transition: background .15s;
+            ">Скопировать текст</button>
+            """,
+            height=50,
+        )
     else:
         st.markdown("""
         <div class="result-card" style="min-height:260px; display:flex; align-items:center; justify-content:center;">
