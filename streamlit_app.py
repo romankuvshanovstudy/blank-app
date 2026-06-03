@@ -46,9 +46,10 @@ PROMPT_TEMPLATE = """
 
 # -- Глобальные стили ----------------------------------------------------------
 st.markdown("""
-<style>
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400&display=swap');
+<link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500&family=IBM+Plex+Mono:wght@400&display=swap" rel="stylesheet">
 
+<style>
 html, body, [class*="css"] {
     font-family: 'IBM Plex Sans', sans-serif !important;
 }
@@ -101,6 +102,12 @@ html, body, [class*="css"] {
     margin-bottom: 10px; margin-top: 20px;
     display: flex; align-items: center; gap: 5px;
 }
+.section-label .material-icons {
+    font-size: 14px;
+    color: #b4b2a9;
+    vertical-align: middle;
+    line-height: 1;
+}
 
 .upload-zone {
     border: 1px dashed #b4b2a9;
@@ -131,8 +138,18 @@ html, body, [class*="css"] {
 .meta-row {
     display: flex; gap: 14px; margin-top: 14px;
     padding-top: 12px; border-top: 1px solid #e8e6e0;
+    flex-wrap: wrap;
 }
-.meta-item { font-size: 11px; color: #888780; display: flex; align-items: center; gap: 4px; }
+.meta-item {
+    font-size: 11px; color: #888780;
+    display: flex; align-items: center; gap: 4px;
+}
+.meta-item .material-icons {
+    font-size: 13px;
+    color: #b4b2a9;
+    vertical-align: middle;
+    line-height: 1;
+}
 
 div[data-testid="stButton"] > button {
     width: auto !important;
@@ -328,7 +345,13 @@ with col_left:
     )
 
     if "Удалённый" in inference_mode:
-        st.markdown('<div class="section-label">Модель</div>', unsafe_allow_html=True)
+        st.markdown(
+            '<div class="section-label">'
+            '<span class="material-icons">smart_toy</span>'
+            'Модель'
+            '</div>',
+            unsafe_allow_html=True,
+        )
         provider_choice = st.radio(
             label="provider_choice",
             options=["Llama 3.3 70B (Groq)", "Gemini Flash (Google)"],
@@ -338,7 +361,13 @@ with col_left:
     else:
         provider_choice = "local"
 
-    st.markdown('<div class="section-label">Источник текста:</div>', unsafe_allow_html=True)
+    st.markdown(
+        '<div class="section-label">'
+        '<span class="material-icons">upload_file</span>'
+        'Источник текста:'
+        '</div>',
+        unsafe_allow_html=True,
+    )
     uploaded_file = st.file_uploader(
         label="pdf_upload",
         type=["pdf"],
@@ -376,7 +405,10 @@ with col_left:
 # =============================================
 with col_right:
     st.markdown(
-        '<div class="section-label" style="margin-top:0;">≡ Результат</div>',
+        '<div class="section-label" style="margin-top:0;">'
+        '<span class="material-icons">subject</span>'
+        'Результат'
+        '</div>',
         unsafe_allow_html=True,
     )
 
@@ -395,7 +427,7 @@ with col_right:
             with st.spinner("Генерация аннотации…"):
                 if provider_choice == "local":
                     result, elapsed = call_local_api(prompt)
-                    model_label = f"llama.cpp @ {LOCAL_HOST}:{LOCAL_PORT}"
+                    model_label = "YandexGPT Lite (дообученная)"
                 elif "Groq" in provider_choice:
                     result, elapsed = call_groq_api(prompt)
                     model_label = "Llama 3.3 70B (Groq)"
@@ -416,18 +448,27 @@ with col_right:
         <div class="result-card">
           <div class="result-text">{ann}</div>
           <div class="meta-row">
-            <div class="meta-item">Время генерации: {secs} сек.</div>
-            <div class="meta-item">Длина аннотации: {words} слов</div>
-            <div class="meta-item">Модель: {model}</div>
+            <div class="meta-item">
+              <span class="material-icons">timer</span>
+              Время генерации: {secs} сек.
+            </div>
+            <div class="meta-item">
+              <span class="material-icons">format_list_numbered</span>
+              Длина аннотации: {words} слов
+            </div>
+            <div class="meta-item">
+              <span class="material-icons">smart_toy</span>
+              Модель: {model}
+            </div>
           </div>
         </div>
         """, unsafe_allow_html=True)
 
         st.markdown("<div style='margin-top:10px;'></div>", unsafe_allow_html=True)
 
-        # Clipboard copy button via JS component
         st.components.v1.html(
             f"""
+            <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet">
             <button onclick="navigator.clipboard.writeText({repr(ann)}).then(() => {{
                 this.textContent = 'Скопировано';
                 setTimeout(() => this.textContent = 'Скопировать текст', 2000);
