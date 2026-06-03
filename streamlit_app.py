@@ -434,7 +434,7 @@ with col_right:
                 else:
                     result, elapsed = call_gemini_api(prompt)
                     model_label = "Gemini Flash (Google)"
-            st.session_state.annotation = result
+            st.session_state.annotation = result.strip()
             st.session_state.elapsed    = elapsed
             st.session_state.model_used = model_label
 
